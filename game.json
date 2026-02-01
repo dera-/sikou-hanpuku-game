@@ -52,6 +52,11 @@
 			"type": "script",
 			"path": "script/utils.js",
 			"global": true
+		},
+		"overlay_touchable": {
+			"type": "script",
+			"path": "script/overlay_touchable.js",
+			"global": true
 		}
 	},
 	"environment": {

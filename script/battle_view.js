@@ -57,6 +57,7 @@ function createBattleView(opts) {
         rect.cssColor = color;
         rect.modified();
         scene.setTimeout(() => {
+            if (rect.destroyed()) return;
             rect.cssColor = orig;
             rect.modified();
         }, frames);
@@ -77,44 +78,60 @@ function createBattleView(opts) {
         });
     }
 
-    function nudge(rect, dx, frames) {
-        const ox = rect.x;
-        rect.x = ox + dx;
-        rect.modified();
-        scene.setTimeout(() => {
-            rect.x = ox;
-            rect.modified();
-        }, frames);
+    // 敵が画面外にズレていく問題を根本回避するため、位置を動かす演出(nudge)を廃止。
+    // 代わりにフラッシュ/弾/ダメージ表示のみで「動かない表現」にする。
+    function nudge() {
+        // no-op
     }
 
     let enemyMaxHpVis = 30;
     let enemyHpVis = 30;
+    let lastEnemyHp = 30;
     let lastKills = 0;
     let lastHp = 0;
 
     function resetBattleVisuals(battle, stats) {
-        enemyMaxHpVis = 30 + battle.enemyLv * 8;
-        enemyHpVis = enemyMaxHpVis;
+        enemyMaxHpVis = battle.enemyMaxHP != null ? battle.enemyMaxHP : (30 + battle.enemyLv * 8);
+        enemyHpVis = battle.enemyHP != null ? battle.enemyHP : enemyMaxHpVis;
+        lastEnemyHp = enemyHpVis;
         lastKills = battle.kills;
         lastHp = stats.hp;
+
+        // 念のため初期位置に固定
+        enemyBox.x = 24 + 860;
+        playerBox.x = 24 + 160;
+        enemyBox.modified();
+        playerBox.modified();
     }
 
     function updateBattleVisuals(battle, stats) {
+        // 敵HPバーを実データに追従させる
+        if (battle.enemyMaxHP != null) enemyMaxHpVis = battle.enemyMaxHP;
+        if (battle.enemyHP != null) enemyHpVis = battle.enemyHP;
+
+        // 敵が倒れた演出(撃破数増加)
         if (battle.kills > lastKills) {
             const diff = battle.kills - lastKills;
             for (let i = 0; i < diff; i++) {
-                nudge(playerBox, 10, 3);
                 spawnProjectile(playerBox.x + playerBox.width, playerBox.y + playerBox.height * 0.5, enemyBox.x, enemyBox.y + enemyBox.height * 0.5, "#fde047");
                 flashRect(enemyBox, "#ef4444", 4);
-                spawnDamageLabel(enemyBox.x + 40, enemyBox.y + 40, "-" + (8 + battle.enemyLv), "#fca5a5");
             }
-            enemyMaxHpVis = 30 + battle.enemyLv * 8;
-            enemyHpVis = enemyMaxHpVis;
             lastKills = battle.kills;
         }
 
+        // 敵HPが減ったときの演出(HP差分で表示)
+        if (enemyHpVis < lastEnemyHp - 0.01) {
+            flashRect(enemyBox, "#ef4444", 3);
+            const d = Math.max(1, Math.floor(lastEnemyHp - enemyHpVis));
+            spawnDamageLabel(enemyBox.x + 40, enemyBox.y + 40, "-" + d, "#fca5a5");
+            lastEnemyHp = enemyHpVis;
+        } else if (enemyHpVis > lastEnemyHp + 0.01) {
+            // 次の敵に切り替わった(HPが戻った)
+            lastEnemyHp = enemyHpVis;
+        }
+
+        // プレイヤー被弾演出
         if (stats.hp < lastHp - 0.01) {
-            nudge(enemyBox, -8, 3);
             spawnProjectile(enemyBox.x, enemyBox.y + enemyBox.height * 0.55, playerBox.x + playerBox.width, playerBox.y + playerBox.height * 0.55, "#fb7185");
             flashRect(playerBox, "#f87171", 4);
             spawnDamageLabel(playerBox.x + 20, playerBox.y + 20, "-" + Math.max(1, Math.floor(lastHp - stats.hp)), "#fecaca");
@@ -134,6 +151,16 @@ function createBattleView(opts) {
         enemyLabel.invalidate();
         enemyHpText.text = "HP " + Math.floor(enemyHpVis) + "/" + enemyMaxHpVis;
         enemyHpText.invalidate();
+
+        // 念のため毎フレーム固定(ズレが残らないように)
+        if (enemyBox.x !== 24 + 860) {
+            enemyBox.x = 24 + 860;
+            enemyBox.modified();
+        }
+        if (playerBox.x !== 24 + 160) {
+            playerBox.x = 24 + 160;
+            playerBox.modified();
+        }
     }
 
     return {

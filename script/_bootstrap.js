@@ -1,3 +1,4 @@
+const overlay_touchable_1 = require("./overlay_touchable");
 const main_1 = require("./main");
 module.exports = (originalParam) => {
     const param = {};
@@ -8,6 +9,7 @@ module.exports = (originalParam) => {
     param.sessionParameter = {};
     // 乱数生成器
     param.random = g.game.random;
+    overlay_touchable_1.installOverlayTouchablePatch();
     const limitTickToWait = 3; // セッションパラメーターが来るまでに待つtick数
     const scene = new g.Scene({
         game: g.game

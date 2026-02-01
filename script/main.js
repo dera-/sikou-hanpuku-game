@@ -1,7 +1,7 @@
 /*
- * ニコ生ゲーム（ランキング）
+ * ニコ生ゲーム(ランキング)
  * 思考と反復のギフト
- * - 200秒固定（タイトル12 / 成長120 / 戦闘60 / 結果8）
+ * - 200秒固定(タイトル12 / 成長120 / 戦闘60 / 結果8)
  * - 成長: 神経衰弱(思考) + 落ちもの(反復) をタブ切替で同時進行
  * - 戦闘: 自動戦闘 + 倍速(1-5) + 逃走(スコア確定) / HP0でスコア0
  */
@@ -20,7 +20,7 @@ function main(param) {
     // ランキング: g.game.vars.gameState.score を最終スコアとして扱う
     g.game.vars.gameState = { score: 0 };
 
-    // 固定200秒（セッションパラメータが来ても固定優先）
+    // 固定200秒(セッションパラメータが来ても固定優先)
     const TOTAL_TIME = 200;
     const PHASE_TITLE = 12;
     const PHASE_GROW = 120;
@@ -65,7 +65,7 @@ function main(param) {
 
     // スキル定義
     const BASE_SKILLS = [
-        { id: "hp", name: "体力鍛錬", stat: "maxHP" },
+        { id: "hp", name: "体力鍛化", stat: "maxHP" },
         { id: "mp", name: "魔力拡張", stat: "maxMP" },
         { id: "atk", name: "剣技基礎", stat: "atk" },
         { id: "def", name: "防御基礎", stat: "def" },
@@ -96,7 +96,7 @@ function main(param) {
         { id: "over", name: "魔力暴走", kind: "high" }
     ];
 
-    // 条件（成長フェーズ中に満たすとスカ→昇格）
+    // 条件(成長フェーズ中に満たすとスカ => 昇格)
     const unlockState = {
         pairs: 0,
         merges: 0,
@@ -119,7 +119,7 @@ function main(param) {
         }
     }
 
-    // 所持スキル: id -> {name, lv, isSca, kind}
+    // 所持スキル
     const owned = {};
 
     function applyStatsFromSkills() {
@@ -182,8 +182,9 @@ function main(param) {
                 stat: skill.stat
             };
         } else {
+            // 重複したらLvUP(スカはLvを上げない)
             if (!owned[key].isSca) {
-                owned[key].lv = clamp(owned[key].lv + 1, 1, 5);
+                owned[key].lv = clamp(owned[key].lv + 1, 1, 10);
             }
         }
         applyStatsFromSkills();
@@ -212,15 +213,19 @@ function main(param) {
     }
 
     // --------------------
-    // 落ちもの（簡易スイカ）
+    // 落ちもの(簡易スイカ)
+    // - 左パネル側で常時進行(タブに依存しない)
+    // - タップ位置で落下開始位置を決める
+    // - 出現は「神経衰弱で獲得したスキル」のみ
+    // - 時間経過で強力(高位/高Lv)が出やすくなる
     // --------------------
     const drop = {
-        areaX: 720,
-        areaY: 120,
-        areaW: 520,
-        areaH: 520,
-        spawnX: 980,
-        spawnY: 140,
+        areaX: 40,
+        areaY: 160,
+        areaW: 600,
+        areaH: 480,
+        spawnX: 340,
+        spawnY: 190,
         active: null,
         pieces: [],
         cooldown: 0,
@@ -232,58 +237,94 @@ function main(param) {
         return 16 + (lv - 1) * 6;
     }
 
-    function spawnPiece(phaseT) {
-        const r = rng.generate();
-        let type = "skill";
-        if (r < lerp(0.12, 0.18, phaseT)) type = "shard";
-        else if (r < lerp(0.35, 0.25, phaseT)) type = "sca";
+    function skillColorById(id) {
+        // スキルごとに色を変える(視認性優先)
+        switch (id) {
+            // base
+            case "hp":
+                return "#fca5a5";
+            case "mp":
+                return "#93c5fd";
+            case "atk":
+                return "#fdba74";
+            case "def":
+                return "#a7f3d0";
+            case "matk":
+                return "#c4b5fd";
+            case "mdef":
+                return "#99f6e4";
+            case "evd":
+                return "#fde68a";
+            case "spd":
+                return "#f9a8d4";
+            // think
+            case "judge":
+                return "#60a5fa";
+            case "analyze":
+                return "#34d399";
+            case "opt":
+                return "#fbbf24";
+            case "rebuild":
+                return "#a78bfa";
+            // repeat
+            case "mastery":
+                return "#fb7185";
+            case "chant":
+                return "#38bdf8";
+            case "muscle":
+                return "#f97316";
+            case "auto":
+                return "#4ade80";
+            // high
+            case "multi":
+                return "#ef4444";
+            case "crit":
+                return "#f59e0b";
+            case "regen":
+                return "#22c55e";
+            case "over":
+                return "#8b5cf6";
+            default:
+                return "#10b981";
+        }
+    }
 
-        if (type === "shard") {
-            return {
-                type: "shard",
-                id: "shard",
-                name: "思考の欠片",
-                lv: 1,
-                isSca: false,
-                kind: "shard",
-                x: drop.spawnX,
-                y: drop.spawnY,
-                vy: 0,
-                r: 14
-            };
+    function spawnPieceFromOwnedOnly(phaseT) {
+        // 「神経衰弱で獲得したスキルのみ」= owned に存在するもののみ
+        // さらに時間経過(phaseT)で「強力(高位/高Lv)」が出やすくなるよう重み付け
+        const candidates = Object.keys(owned).map((k) => owned[k]).filter((s) => !s.isSca);
+        if (candidates.length === 0) return null;
+
+        const t = clamp(phaseT, 0, 1);
+        const weights = candidates.map((s) => {
+            const kindBonus = (s.kind === "high") ? (1.0 + 3.0 * t) : (1.0 + 0.6 * t);
+            const lvBonus = 1.0 + (s.lv - 1) * (0.25 + 0.55 * t);
+            return kindBonus * lvBonus;
+        });
+        let sum = 0;
+        for (let i = 0; i < weights.length; i++) sum += weights[i];
+        let r = rng.generate() * sum;
+        let picked = candidates[candidates.length - 1];
+        for (let i = 0; i < candidates.length; i++) {
+            r -= weights[i];
+            if (r <= 0) {
+                picked = candidates[i];
+                break;
+            }
         }
 
-        let candidates = Object.keys(owned).map((k) => owned[k]).filter((s) => !s.isSca);
-        if (candidates.length === 0) candidates = BASE_SKILLS.map((s) => ({ id: s.id, name: s.name, lv: 1, isSca: false, kind: "base" }));
-        const picked = choice(rng, candidates);
-
-        if (type === "sca") {
-            const hs = choice(rng, HIGH_SKILLS);
-            return {
-                type: "skill",
-                id: hs.id,
-                name: hs.name,
-                lv: 1,
-                isSca: true,
-                kind: "high",
-                x: drop.spawnX,
-                y: drop.spawnY,
-                vy: 0,
-                r: pieceRadius(1)
-            };
-        }
-
+        const lv = clamp(picked.lv || 1, 1, 10);
         return {
             type: "skill",
             id: picked.id,
             name: picked.name,
-            lv: clamp(picked.lv || 1, 1, 5),
+            lv,
             isSca: false,
             kind: picked.kind || "base",
             x: drop.spawnX,
             y: drop.spawnY,
             vy: 0,
-            r: pieceRadius(clamp(picked.lv || 1, 1, 5))
+            r: pieceRadius(lv)
         };
     }
 
@@ -291,14 +332,7 @@ function main(param) {
         if (!a || !b) return false;
         if (a.type !== "skill" || b.type !== "skill") return false;
         if (a.isSca || b.isSca) return false;
-        return a.id === b.id && a.lv === b.lv && a.lv < 5;
-    }
-
-    function canAnnihilateSca(a, b) {
-        if (!a || !b) return false;
-        if (a.type !== "skill" || b.type !== "skill") return false;
-        if (!a.isSca || !b.isSca) return false;
-        return a.id === b.id;
+        return a.id === b.id && a.lv === b.lv && a.lv < 10;
     }
 
     function resolveCollisions() {
@@ -318,20 +352,13 @@ function main(param) {
                         a.lv++;
                         a.r = pieceRadius(a.lv);
                         unlockState.merges++;
+                        // 所持スキルも重複扱いでLvUP
                         if (owned[a.id] && !owned[a.id].isSca) {
-                            owned[a.id].lv = clamp(owned[a.id].lv + 1, 1, 5);
+                            owned[a.id].lv = clamp(owned[a.id].lv + 1, 1, 10);
                             applyStatsFromSkills();
                         }
                         tryPromoteScaSkills();
                         continue;
-                    }
-                    if (nearRest && canAnnihilateSca(a, b)) {
-                        drop.pieces.splice(j, 1);
-                        drop.pieces.splice(i, 1);
-                        i--;
-                        unlockState.merges++;
-                        tryPromoteScaSkills();
-                        break;
                     }
 
                     const dist = Math.sqrt(dist2) || 0.001;
@@ -358,7 +385,9 @@ function main(param) {
         streak: 0,
         streakMul: 1,
         escaped: false,
-        wallDefeated: false
+        wallDefeated: false,
+        enemyMaxHP: 30,
+        enemyHP: 30
     };
 
     function hasSkill(id) {
@@ -369,29 +398,45 @@ function main(param) {
         return owned[id] && !owned[id].isSca ? owned[id].lv : 0;
     }
 
+    function resetEnemyHP() {
+        battle.enemyMaxHP = 18 + battle.enemyLv * 7;
+        battle.enemyHP = battle.enemyMaxHP;
+    }
+
     function battleTick(dt) {
         if (battle.escaped) return;
         if (stats.hp <= 0) return;
 
         battle.time += dt;
+        const prevEnemyLv = battle.enemyLv;
         battle.enemyLv = 1 + Math.floor(battle.time / 6);
+
+        // 主人公Lv(=敵Lv)が上がったらHP全回復
+        if (battle.enemyLv > prevEnemyLv) {
+            stats.hp = stats.maxHP;
+        }
+
+        // 敵HPが未初期化/レベル変化したら更新
+        if (battle.enemyHP <= 0 || battle.enemyMaxHP !== 18 + battle.enemyLv * 7) {
+            resetEnemyHP();
+        }
 
         const spdBonus = 1 + (stats.spd / 50);
         const repeatBonus = 1 + 0.08 * (skillLv("mastery") + skillLv("chant") + skillLv("muscle") + skillLv("auto"));
         const multiBonus = hasSkill("multi") ? 1.25 : 1.0;
-        let actionRate = spdBonus * repeatBonus * multiBonus;
+        const actionRate = spdBonus * repeatBonus * multiBonus;
 
         let actions = actionRate * dt;
 
-        let critRate = 0.05 + 0.03 * skillLv("crit");
-        let critMul = 1.6 + 0.1 * skillLv("crit");
-        let overMul = hasSkill("over") ? 1.25 : 1.0;
-        let judgeMul = 1.0 + 0.03 * (skillLv("judge") + skillLv("analyze") + skillLv("opt") + skillLv("rebuild"));
+        const critRate = 0.05 + 0.03 * skillLv("crit");
+        const critMul = 1.6 + 0.1 * skillLv("crit");
+        const overMul = hasSkill("over") ? 1.25 : 1.0;
+        const judgeMul = 1.0 + 0.03 * (skillLv("judge") + skillLv("analyze") + skillLv("opt") + skillLv("rebuild"));
 
-        let mpCostMul = ailments.mental > 0 ? 1.35 : 1.0;
-        let healMul = ailments.sick > 0 ? 0.6 : 1.0;
-        let defMul = ailments.injury > 0 ? 0.8 : 1.0;
-        let canHeal = ailments.bigInjury <= 0;
+        const mpCostMul = ailments.mental > 0 ? 1.35 : 1.0;
+        const healMul = ailments.sick > 0 ? 0.6 : 1.0;
+        const defMul = ailments.injury > 0 ? 0.8 : 1.0;
+        const canHeal = ailments.bigInjury <= 0;
 
         if (ailments.poison > 0) {
             stats.hp -= 2.2 * dt;
@@ -412,19 +457,24 @@ function main(param) {
         }
 
         let baseDmg = (stats.atk * 0.9 + stats.matk * 0.9) * judgeMul * overMul;
-        let mpUse = Math.min(stats.mp, actions * 0.8 * mpCostMul);
+        const mpUse = Math.min(stats.mp, actions * 0.8 * mpCostMul);
         stats.mp -= mpUse;
         stats.mp = clamp(stats.mp, 0, stats.maxMP);
         baseDmg *= 1.0 + 0.15 * (mpUse / Math.max(0.001, actions));
         baseDmg *= (1 - critRate) + critRate * critMul;
 
-        const enemyHP = 18 + battle.enemyLv * 7;
-        const killsExpected = (baseDmg * actions) / enemyHP;
-        const killsNow = Math.floor(killsExpected);
-        if (killsNow > 0) {
-            battle.kills += killsNow;
-            battle.streak += killsNow;
-            battle.streakMul = 1 + Math.min(2.0, battle.streak / 25);
+        // 敵HPを実際に減らす
+        let dmg = baseDmg * actions;
+        while (dmg > 0 && battle.enemyHP > 0) {
+            const take = Math.min(dmg, battle.enemyHP);
+            battle.enemyHP -= take;
+            dmg -= take;
+            if (battle.enemyHP <= 0) {
+                battle.kills += 1;
+                battle.streak += 1;
+                battle.streakMul = 1 + Math.min(2.0, battle.streak / 25);
+                resetEnemyHP();
+            }
         }
 
         const enemyDps = 2.2 + battle.enemyLv * 0.55;
@@ -475,8 +525,8 @@ function main(param) {
     function decideTitle(score, memPairs, merges) {
         if (score <= 200) return "落ちこぼれ";
         if (memPairs >= 7) return "思索者";
-        if (merges >= 10) return "鍛錬者";
-        if (hpRateAtEnd() >= 0.7 && battle.escaped) return "賢者";
+        if (merges >= 10) return "鍛化者";
+        if (hpRateAtEnd() >= 0.7 && battle.escaped) return "勇者";
         return "成り上がり";
     }
 
@@ -536,61 +586,115 @@ function main(param) {
             }
         }
 
-        tabMemory.onPointDown.add(() => setTab("memory"));
-        tabDrop.onPointDown.add(() => setTab("drop"));
-
-        const statLabel = new g.Label({ scene, text: "", font: fontTiny, fontSize: 18, textColor: "#111827", x: 720, y: 104 });
-        scene.append(statLabel);
-
-        function updateStatLabel() {
-            statLabel.text =
-                "HP " + Math.floor(stats.hp) + "/" + stats.maxHP +
-                "  MP " + Math.floor(stats.mp) + "/" + stats.maxMP +
-                "\nATK " + stats.atk + "  DEF " + stats.def +
-                "  MATK " + stats.matk + "  MDEF " + stats.mdef +
-                "\nEVD " + stats.evd + "  SPD " + stats.spd;
-            statLabel.invalidate();
+        // タブ切替時の追加挙動
+        function onSwitchedToDrop() {
+            // 反復に切り替えたら、神経衰弱のカードをリセット(所持スキルは維持)
+            // ついでに「シャッフル」扱いとして条件進行
+            unlockState.shuffles++;
+            memoryGame.resetMemoryDeck(0);
+            memoryGame.renderMemoryCards(memGrid, () => phase, () => activeTab);
+            updateMemPairLabel(memoryGame.getPairs());
         }
 
-        const skillLabel = new g.Label({ scene, text: "", font: fontTiny, fontSize: 18, textColor: "#111827", x: 720, y: 180 });
-        scene.append(skillLabel);
+        tabMemory.onPointDown.add(() => setTab("memory"));
+        tabDrop.onPointDown.add(() => {
+            setTab("drop");
+            onSwitchedToDrop();
+        });
+
+        // 右パネル: ステータス
+        const statLabels = {
+            hp: new g.Label({ scene, text: "", font: fontTiny, fontSize: 18, textColor: "#111827", x: 720, y: 104 }),
+            mp: new g.Label({ scene, text: "", font: fontTiny, fontSize: 18, textColor: "#111827", x: 720, y: 126 }),
+            atk: new g.Label({ scene, text: "", font: fontTiny, fontSize: 18, textColor: "#111827", x: 720, y: 148 }),
+            def: new g.Label({ scene, text: "", font: fontTiny, fontSize: 18, textColor: "#111827", x: 720, y: 170 }),
+            matk: new g.Label({ scene, text: "", font: fontTiny, fontSize: 18, textColor: "#111827", x: 720, y: 192 }),
+            mdef: new g.Label({ scene, text: "", font: fontTiny, fontSize: 18, textColor: "#111827", x: 720, y: 214 }),
+            evd: new g.Label({ scene, text: "", font: fontTiny, fontSize: 18, textColor: "#111827", x: 720, y: 236 }),
+            spd: new g.Label({ scene, text: "", font: fontTiny, fontSize: 18, textColor: "#111827", x: 720, y: 258 })
+        };
+        Object.keys(statLabels).forEach((k) => scene.append(statLabels[k]));
+
+        function updateStatLabel() {
+            statLabels.hp.text = "HP " + Math.floor(stats.hp) + "/" + stats.maxHP;
+            statLabels.mp.text = "MP " + Math.floor(stats.mp) + "/" + stats.maxMP;
+            statLabels.atk.text = "ATK " + stats.atk;
+            statLabels.def.text = "DEF " + stats.def;
+            statLabels.matk.text = "MATK " + stats.matk;
+            statLabels.mdef.text = "MDEF " + stats.mdef;
+            statLabels.evd.text = "EVD " + stats.evd;
+            statLabels.spd.text = "SPD " + stats.spd;
+            Object.keys(statLabels).forEach((k) => statLabels[k].invalidate());
+        }
+
+        // 右パネル: スキル表示(改行不可のため、1項目=1Label)
+        const skillHeaderLabel = new g.Label({ scene, text: "スキル", font: fontTiny, fontSize: 18, textColor: "#111827", x: 720, y: 290 });
+        scene.append(skillHeaderLabel);
+        const skillItemLabels = [];
+        const SKILL_LIST_MAX = 10;
+        for (let i = 0; i < SKILL_LIST_MAX; i++) {
+            const lb = new g.Label({ scene, text: "", font: fontTiny, fontSize: 18, textColor: "#111827", x: 720, y: 312 + i * 20 });
+            scene.append(lb);
+            skillItemLabels.push(lb);
+        }
 
         function updateSkillLabel() {
-            const lines = [];
             const keys = Object.keys(owned);
             keys.sort();
+            const lines = [];
             for (let i = 0; i < keys.length; i++) {
                 const s = owned[keys[i]];
                 const tag = s.isSca ? "(スカ)" : "Lv" + s.lv;
                 lines.push(s.name + " " + tag);
-                if (lines.length >= 10) break;
+                if (lines.length >= SKILL_LIST_MAX) break;
             }
             if (lines.length === 0) lines.push("(まだ何も得ていない)");
-            skillLabel.text = "スキル\n" + lines.join("\n");
-            skillLabel.invalidate();
+
+            for (let i = 0; i < SKILL_LIST_MAX; i++) {
+                skillItemLabels[i].text = lines[i] || "";
+                skillItemLabels[i].invalidate();
+            }
         }
 
         // overlay
         const overlay = new g.FilledRect({ scene, cssColor: "#000000", width: W, height: H, opacity: 0.0, touchable: true });
         scene.append(overlay);
+        const overlayGuard = new g.FilledRect({ scene, cssColor: "#000000", width: W, height: H, opacity: 0.0, touchable: true });
+        scene.append(overlayGuard);
         const overlayText = new g.Label({ scene, text: "", font, fontSize: 44, textColor: "#ffffff", x: 80, y: 180 });
         scene.append(overlayText);
-        const overlaySub = new g.Label({ scene, text: "", font: fontSmall, fontSize: 24, textColor: "#ffffff", x: 80, y: 280 });
-        scene.append(overlaySub);
 
-        function showOverlay(mainText, subText, opacity) {
+        const overlayRuleLines = [
+            new g.Label({ scene, text: "・育成(思考/反復)でスキルを獲得", font: fontSmall, fontSize: 24, textColor: "#ffffff", x: 80, y: 280 }),
+            new g.Label({ scene, text: "・育成が終わると自動戦闘でスコアを稼ぐ", font: fontSmall, fontSize: 24, textColor: "#ffffff", x: 80, y: 312 }),
+            new g.Label({ scene, text: "・HP0でスコア0 / 逃走で確定", font: fontSmall, fontSize: 24, textColor: "#ffffff", x: 80, y: 344 }),
+            new g.Label({ scene, text: "(12秒後に自動で育成へ移行します)", font: fontSmall, fontSize: 24, textColor: "#ffffff", x: 80, y: 392 })
+        ];
+        overlayRuleLines.forEach((lb) => scene.append(lb));
+
+        function showOverlay(mainText, opacity) {
             overlay.opacity = opacity;
+            overlay.touchable = opacity > 0;
             overlay.modified();
+            overlayGuard.touchable = opacity > 0;
             overlayText.text = mainText;
             overlayText.invalidate();
-            overlaySub.text = subText || "";
-            overlaySub.invalidate();
         }
 
-        // memory minigame (separated)
-        const memInfo = new g.Label({ scene, text: "揃えるとスキル獲得。高位は条件未達だとスカ。", font: fontTiny, fontSize: 18, textColor: "#111827", x: 40, y: 110 });
-        memoryLayer.append(memInfo);
-        const memGrid = new g.E({ scene, x: 40, y: 150 });
+        function setOverlayRuleVisible(v) {
+            overlayRuleLines.forEach((lb) => {
+                if (v) lb.show();
+                else lb.hide();
+            });
+        }
+
+        const memInfoLines = [
+            new g.Label({ scene, text: "揃えるとスキルを獲得。", font: fontTiny, fontSize: 18, textColor: "#111827", x: 40, y: 110 }),
+            new g.Label({ scene, text: "高位は条件未達だとスカ。", font: fontTiny, fontSize: 18, textColor: "#111827", x: 40, y: 132 })
+        ];
+        memInfoLines.forEach((lb) => memoryLayer.append(lb));
+
+        const memGrid = new g.E({ scene, x: 40, y: 160 });
         memoryLayer.append(memGrid);
         const memPairLabel = new g.Label({ scene, text: "PAIR: 0", font: fontTiny, fontSize: 18, textColor: "#111827", x: 40, y: 640 });
         memoryLayer.append(memPairLabel);
@@ -600,7 +704,6 @@ function main(param) {
             memPairLabel.invalidate();
         }
 
-        // create memory game module
         const memoryGame = createMemoryGame({
             scene,
             rng,
@@ -627,9 +730,12 @@ function main(param) {
             }
         });
 
-        // drop UI
-        const dropInfo = new g.Label({ scene, text: "左右ドラッグで位置調整→タップで落下。合体でLvUP。スカ同士は対消滅。", font: fontTiny, fontSize: 18, textColor: "#111827", x: 40, y: 110 });
-        dropLayer.append(dropInfo);
+        // 左パネル側: 落ちもの
+        const dropInfoLines = [
+            new g.Label({ scene, text: "左の落ちもの: タップ位置に落下(ドラッグで微調整)", font: fontTiny, fontSize: 18, textColor: "#111827", x: 40, y: 110 }),
+            new g.Label({ scene, text: "出現は獲得済みスキルのみ。時間が経つほど強いカードが出やすい。", font: fontTiny, fontSize: 18, textColor: "#111827", x: 40, y: 132 })
+        ];
+        dropInfoLines.forEach((lb) => dropLayer.append(lb));
 
         const dropArea = new g.FilledRect({ scene, cssColor: "#f3f4f6", x: drop.areaX, y: drop.areaY, width: drop.areaW, height: drop.areaH, opacity: 1.0, touchable: true });
         dropLayer.append(dropArea);
@@ -643,14 +749,14 @@ function main(param) {
         const dropBorderR = new g.FilledRect({ scene, cssColor: "#111827", x: drop.areaX + drop.areaW - 2, y: drop.areaY, width: 2, height: drop.areaH });
         dropLayer.append(dropBorderR);
 
-        const dropHint = new g.Label({ scene, text: "(反復) 操作: ドラッグで左右 / タップで落下", font: fontTiny, fontSize: 18, textColor: "#111827", x: 720, y: 660 });
+        const dropHint = new g.Label({ scene, text: "(反復) タップで落下 / ドラッグで左右", font: fontTiny, fontSize: 18, textColor: "#111827", x: 40, y: 660 });
         dropLayer.append(dropHint);
 
         const dropCountLabel = new g.Label({ scene, text: "MERGE: 0", font: fontTiny, fontSize: 18, textColor: "#111827", x: 40, y: 640 });
         dropLayer.append(dropCountLabel);
 
         function updateDropCountLabel() {
-            dropCountLabel.text = "MERGE: " + unlockState.merges + "  SHARD: " + unlockState.thoughtShards + "  SHUFFLE: " + unlockState.shuffles;
+            dropCountLabel.text = "MERGE: " + unlockState.merges;
             dropCountLabel.invalidate();
         }
 
@@ -658,13 +764,12 @@ function main(param) {
         dropLayer.append(pieceLayer);
 
         function drawPiece(p) {
-            const color = p.type === "shard" ? "#f59e0b" : (p.isSca ? "#6b7280" : "#10b981");
+            const color = p.isSca ? "#6b7280" : skillColorById(p.id);
             const rect = new g.FilledRect({ scene, cssColor: color, x: p.x - p.r, y: p.y - p.r, width: p.r * 2, height: p.r * 2, opacity: 0.9 });
             pieceLayer.append(rect);
-            const t = p.type === "shard" ? "欠片" : (p.isSca ? "スカ" : "Lv" + p.lv);
-            const label = new g.Label({ scene, text: p.type === "shard" ? "思" : p.name, font: fontTiny, fontSize: 16, textColor: "#111827", x: rect.x + 4, y: rect.y + 4 });
+            const label = new g.Label({ scene, text: p.name, font: fontTiny, fontSize: 16, textColor: "#111827", x: rect.x + 4, y: rect.y + 4 });
             pieceLayer.append(label);
-            const sub = new g.Label({ scene, text: t, font: fontTiny, fontSize: 14, textColor: "#111827", x: rect.x + 4, y: rect.y + p.r * 2 - 20 });
+            const sub = new g.Label({ scene, text: "Lv" + p.lv, font: fontTiny, fontSize: 14, textColor: "#111827", x: rect.x + 4, y: rect.y + p.r * 2 - 20 });
             pieceLayer.append(sub);
             p._e = rect;
             p._l = label;
@@ -681,45 +786,49 @@ function main(param) {
 
         function ensureActive(phaseT) {
             if (drop.active || drop.cooldown > 0) return;
-            drop.active = spawnPiece(phaseT);
+            const p = spawnPieceFromOwnedOnly(phaseT);
+            if (!p) return;
+            drop.active = p;
             refreshPieces();
         }
 
         let dragging = false;
         let dragOffsetX = 0;
+        let dragMoved = false;
+
         dropArea.onPointDown.add((ev) => {
             if (phase !== "grow") return;
-            if (activeTab !== "drop") return;
             if (!drop.active) return;
             dragging = true;
+            dragMoved = false;
+            // タップ位置で落下位置を変更
+            drop.active.x = clamp(ev.point.x, drop.areaX + drop.active.r + 4, drop.areaX + drop.areaW - drop.active.r - 4);
             dragOffsetX = drop.active.x - ev.point.x;
+            refreshPieces();
         });
         dropArea.onPointMove.add((ev) => {
             if (!dragging) return;
             if (!drop.active) return;
+            dragMoved = true;
             drop.active.x = clamp(ev.point.x + dragOffsetX, drop.areaX + drop.active.r + 4, drop.areaX + drop.areaW - drop.active.r - 4);
             refreshPieces();
         });
         dropArea.onPointUp.add(() => {
-            dragging = false;
-        });
-
-        dropArea.onPointDown.add(() => {
             if (phase !== "grow") return;
-            if (activeTab !== "drop") return;
-            if (drop.active) {
+            if (!drop.active) {
+                dragging = false;
+                return;
+            }
+            // タップ(=移動が少ない)で落下開始
+            if (!dragMoved) {
                 drop.pieces.push(drop.active);
                 drop.active = null;
                 drop.cooldown = 10;
-                unlockState.shuffles++;
-                memoryGame.resetMemoryDeck(growT());
-                memoryGame.renderMemoryCards(memGrid, () => phase, () => activeTab);
-                tryPromoteScaSkills();
                 updateDropCountLabel();
             }
+            dragging = false;
         });
 
-        // battle UI
         const battleLayer = new g.E({ scene, x: 0, y: 0, visible: false });
         scene.append(battleLayer);
 
@@ -733,6 +842,10 @@ function main(param) {
 
         const battleStat = new g.Label({ scene, text: "", font: fontSmall, fontSize: 24, textColor: "#ffffff", x: 48, y: 170 });
         battleLayer.append(battleStat);
+
+        // 戦闘中の現在スコア表示
+        const battleScoreLabel = new g.Label({ scene, text: "SCORE: 0", font: fontSmall, fontSize: 24, textColor: "#ffffff", x: 48, y: 220 });
+        battleLayer.append(battleScoreLabel);
 
         const battleLog = new g.Label({ scene, text: "", font: fontTiny, fontSize: 18, textColor: "#e5e7eb", x: 48, y: 260 });
         battleLayer.append(battleLog);
@@ -757,7 +870,6 @@ function main(param) {
         const btnEscapeLabel = new g.Label({ scene, text: "逃走(確定)", font: fontSmall, fontSize: 22, textColor: "#ffffff", x: btnEscape.x + 26, y: btnEscape.y + 10 });
         battleLayer.append(btnEscapeLabel);
 
-        // phase
         let elapsed = 0;
         let phase = "title";
 
@@ -777,16 +889,15 @@ function main(param) {
             titleAutoCanceled = false;
         }
 
-        function growT() {
-            return clamp((elapsed - PHASE_TITLE) / PHASE_GROW, 0, 1);
-        }
-
         function updateBattleUI() {
             battleStat.text =
-                "敵Lv: " + battle.enemyLv + "  撃破: " + battle.kills + "  連勝倍率: x" + battle.streakMul.toFixed(2) +
+                "敵Lv: " + battle.enemyLv + "  破壊: " + battle.kills + "  連勝率: x" + battle.streakMul.toFixed(2) +
                 "\nHP " + Math.floor(stats.hp) + "/" + stats.maxHP + "  MP " + Math.floor(stats.mp) + "/" + stats.maxMP +
                 "  倍速: " + battle.speed + "x";
             battleStat.invalidate();
+
+            battleScoreLabel.text = "SCORE: " + calcScore();
+            battleScoreLabel.invalidate();
 
             const ail = [];
             if (ailments.poison > 0) ail.push("毒");
@@ -812,20 +923,35 @@ function main(param) {
                 rightPanel.hide();
                 memoryLayer.hide();
                 dropLayer.hide();
+                tabMemory.hide();
+                tabDrop.hide();
+                tabMemoryLabel.hide();
+                tabDropLabel.hide();
+                Object.keys(statLabels).forEach((k) => statLabels[k].hide());
+                skillHeaderLabel.hide();
+                skillItemLabels.forEach((lb) => lb.hide());
+
                 battleLayer.hide();
-                showOverlay(
-                    "思考と反復のギフト",
-                    "・育成(神経衰弱/落ちもの)でスキルを獲得\n・育成が終わると自動戦闘でスコアを稼ぐ\n・HP0でスコア0 / 逃走で確定\n\n(12秒後に自動で育成へ移行します)",
-                    0.70
-                );
+                showOverlay("思考と反復のギフト", 0.70);
+                setOverlayRuleVisible(true);
                 startTitleAutoTimer();
             }
             if (p === "grow") {
                 phaseLabel.text = "GROW";
                 phaseLabel.invalidate();
-                showOverlay("", "", 0.0);
+                showOverlay("", 0.0);
+                setOverlayRuleVisible(false);
+
                 leftPanel.show();
                 rightPanel.show();
+                tabMemory.show();
+                tabDrop.show();
+                tabMemoryLabel.show();
+                tabDropLabel.show();
+                Object.keys(statLabels).forEach((k) => statLabels[k].show());
+                skillHeaderLabel.show();
+                skillItemLabels.forEach((lb) => lb.show());
+
                 battleLayer.hide();
                 setTab(activeTab);
                 cancelTitleAutoTimer();
@@ -837,10 +963,21 @@ function main(param) {
                 rightPanel.hide();
                 memoryLayer.hide();
                 dropLayer.hide();
+                tabMemory.hide();
+                tabDrop.hide();
+                tabMemoryLabel.hide();
+                tabDropLabel.hide();
+                Object.keys(statLabels).forEach((k) => statLabels[k].hide());
+                skillHeaderLabel.hide();
+                skillItemLabels.forEach((lb) => lb.hide());
+
                 battleLayer.show();
-                showOverlay("", "", 0.0);
+                showOverlay("", 0.0);
+                setOverlayRuleVisible(false);
+
                 stats.hp = clamp(stats.hp, 1, stats.maxHP);
                 stats.mp = clamp(stats.mp, 0, stats.maxMP);
+                resetEnemyHP();
                 battleView.resetBattleVisuals(battle, stats);
                 updateBattleUI();
                 battleView.updateBattleVisuals(battle, stats);
@@ -850,31 +987,36 @@ function main(param) {
                 phaseLabel.text = "RESULT";
                 phaseLabel.invalidate();
                 battleLayer.hide();
-                showOverlay("結果", "", 0.65);
+                showOverlay("結果", 0.65);
+                setOverlayRuleVisible(false);
                 cancelTitleAutoTimer();
             }
         }
 
         function finalizeScoreAndGoResult() {
+            // 戦闘画面を即非表示にしてから結果へ
+            battleLayer.hide();
+
             const score = calcScore();
             g.game.vars.gameState.score = score;
             const title = decideTitle(score, memoryGame.getPairs(), unlockState.merges);
             setPhase("result");
-            showOverlay(
-                "SCORE: " + score,
-                "称号: " + title + "\n撃破: " + battle.kills + " / 敵Lv: " + battle.enemyLv + " / HP残: " + Math.floor(stats.hp) +
-                "\n(ランキングに送信されます)",
-                0.70
-            );
+            showOverlay("SCORE: " + score, 0.70);
+            overlayRuleLines[0].text = "称号: " + title;
+            overlayRuleLines[1].text = "破壊: " + battle.kills + " / 敵Lv: " + battle.enemyLv + " / HP残: " + Math.floor(stats.hp);
+            overlayRuleLines[2].text = "(ランキングに送信されます)";
+            overlayRuleLines[3].text = "";
+            overlayRuleLines.forEach((lb) => lb.invalidate());
+            setOverlayRuleVisible(true);
         }
 
         btnEscape.onPointDown.add(() => {
             if (phase !== "battle") return;
             battle.escaped = true;
+            // TIMEが残っていても即結果へ
             finalizeScoreAndGoResult();
         });
 
-        // init
         memoryGame.resetMemoryDeck(0);
         memoryGame.renderMemoryCards(memGrid, () => phase, () => activeTab);
         updateMemPairLabel(memoryGame.getPairs());
@@ -886,13 +1028,15 @@ function main(param) {
         overlay.onPointDown.add(() => {
             if (phase !== "title") return;
             cancelTitleAutoTimer();
-            showOverlay("", "", 0.0);
+            showOverlay("", 0.0);
+            setOverlayRuleVisible(false);
             elapsed = PHASE_TITLE;
             setPhase("grow");
         });
 
         scene.onUpdate.add(() => {
             const dt = 1 / g.game.fps;
+            overlayGuard.touchable = overlay.opacity > 0.001;
             elapsed += dt;
             timeLabel.text = "TIME: " + formatTime(TOTAL_TIME - elapsed);
             timeLabel.invalidate();
@@ -919,9 +1063,10 @@ function main(param) {
             }
 
             if (phase === "grow") {
-                const t = growT();
+                const phaseT = clamp((elapsed - PHASE_TITLE) / PHASE_GROW, 0, 1);
+
                 if (drop.cooldown > 0) drop.cooldown--;
-                ensureActive(t);
+                ensureActive(phaseT);
 
                 for (let i = 0; i < drop.pieces.length; i++) {
                     const p = drop.pieces[i];
@@ -935,27 +1080,9 @@ function main(param) {
                         p.vy *= -0.15;
                         if (Math.abs(p.vy) < 0.2) p.vy = 0;
                     }
-
-                    if (p.y < drop.areaY + 20) {
-                        stats.hp = clamp(stats.hp - 0.6, 0, stats.maxHP);
-                    }
                 }
 
                 resolveCollisions();
-
-                for (let i = 0; i < drop.pieces.length; i++) {
-                    const p = drop.pieces[i];
-                    if (p.type === "shard" && p.vy === 0 && p.y >= drop.areaY + drop.areaH - p.r - 4) {
-                        drop.pieces.splice(i, 1);
-                        i--;
-                        unlockState.thoughtShards++;
-                        stats.mp = clamp(stats.mp + 6, 0, stats.maxMP);
-                        tryPromoteScaSkills();
-                        updateDropCountLabel();
-                        updateStatLabel();
-                    }
-                }
-
                 refreshPieces();
                 updateStatLabel();
                 updateSkillLabel();
@@ -966,12 +1093,41 @@ function main(param) {
                 battleTick(dtBattle);
                 updateBattleUI();
                 battleView.updateBattleVisuals(battle, stats);
+
+                // HP0ならTIMEが残っていても即結果へ(戦闘画面を消して遷移)
                 if (stats.hp <= 0) {
+                    battleLayer.hide();
                     g.game.vars.gameState.score = 0;
                     setPhase("result");
-                    showOverlay("SCORE: 0", "HPが尽きた…（欲張りすぎた）", 0.75);
+                    showOverlay("SCORE: 0", 0.75);
+                    overlayRuleLines[0].text = "HPが尽きた…(欲張りすぎた)";
+                    overlayRuleLines[1].text = "";
+                    overlayRuleLines[2].text = "";
+                    overlayRuleLines[3].text = "";
+                    overlayRuleLines.forEach((lb) => lb.invalidate());
+                    setOverlayRuleVisible(true);
                 }
             }
+        });
+
+        // 成長画面: 最大HP/最大MPが上がったら現在値も同値にする
+        // (applyStatsFromSkills()はスキル獲得/昇格/合体で呼ばれるため、ここで差分を検知して回復)
+        let lastMaxHP = stats.maxHP;
+        let lastMaxMP = stats.maxMP;
+        scene.onUpdate.add(() => {
+            if (phase !== "grow") {
+                lastMaxHP = stats.maxHP;
+                lastMaxMP = stats.maxMP;
+                return;
+            }
+            if (stats.maxHP > lastMaxHP) {
+                stats.hp = stats.maxHP;
+            }
+            if (stats.maxMP > lastMaxMP) {
+                stats.mp = stats.maxMP;
+            }
+            lastMaxHP = stats.maxHP;
+            lastMaxMP = stats.maxMP;
         });
     });
 
